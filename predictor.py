@@ -1,4 +1,4 @@
-"""参赛提交入口：Predictor 类。
+﻿"""参赛提交入口：Predictor 类。
 
 判题系统按如下契约调用，请勿改变类名与方法签名：
 
@@ -7,22 +7,19 @@
     for prompt in 评测集:
         text = p.predict(prompt)
 
-本实现优先使用 weights/student_model.npz 中的轻量 13 类分类器；若该文件不存在
-或加载失败，则回退到官方 FinGPT 7B + LoRA 保底模型。
+本实现优先使用基于官方 FinGPT 基线大模型结构压缩得到的 Llama 分类器；若压缩
+模型目录不存在或加载失败，则回退到官方 FinGPT 7B + LoRA 保底模型。
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from student_model import StudentTextClassifier
-
 
 class Predictor:
     def __init__(self):
         root = Path(__file__).resolve().parent
-        self.student_path = root / "weights" / "student_model.npz"
-        self.student: StudentTextClassifier | None = None
+        self.compressed_dir = root / "weights" / "compressed_llama_classifier"
         self.model = None
         self.tokenizer = None
         self.mode = "unloaded"
@@ -30,18 +27,36 @@ class Predictor:
         self.adapter_path = "/opt/fingpt-forecaster/models/fingpt-forecaster_sz50_llama2-7B_lora"
 
     def load(self):
-        """Load the lightweight student model when available, otherwise teacher fallback."""
-        if self.student_path.exists():
+        """Load compressed baseline-derived classifier when available, otherwise fallback."""
+        if (self.compressed_dir / "classifier_config.json").exists():
             try:
-                self.student = StudentTextClassifier.load(self.student_path)
-                self.mode = "student"
-                print(f"Loaded student classifier: {self.student_path}", flush=True)
+                self._load_compressed_classifier()
                 return
             except Exception as exc:  # noqa: BLE001 - fallback keeps the submission runnable.
-                print(f"Student classifier load failed ({type(exc).__name__}: {exc}); falling back.", flush=True)
-                self.student = None
+                print(f"Compressed classifier load failed ({type(exc).__name__}: {exc}); falling back.", flush=True)
+                self.model = None
+                self.tokenizer = None
 
         self._load_teacher_model()
+
+    def _load_compressed_classifier(self) -> None:
+        import torch
+        from transformers import AutoTokenizer
+
+        from compressed_llama_classifier import CompressedLlamaClassifier
+
+        self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_path, trust_remote_code=True)
+        self.tokenizer.truncation_side = "left"
+        if self.tokenizer.pad_token_id is None and self.tokenizer.eos_token_id is not None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.model = CompressedLlamaClassifier.load_classifier(self.compressed_dir, dtype=dtype)
+        self.model.to(device)
+        self.model.eval()
+        self.mode = "compressed"
+        print(f"Loaded compressed Llama classifier: {self.compressed_dir}", flush=True)
 
     def _load_teacher_model(self) -> None:
         import torch
@@ -114,6 +129,27 @@ class Predictor:
 
         return f"预测涨跌幅：{direction}"
 
+    def _predict_compressed(self, prompt: str) -> str:
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError("压缩模型未加载，请先调用 load() 方法")
+
+        import torch
+
+        device = next(self.model.parameters()).device
+        max_length = int(getattr(self.model, "max_length", 4096))
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=max_length,
+        ).to(device)
+        with torch.inference_mode():
+            label = self.model.predict_label(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+            )
+        return f"预测涨跌幅：{label}"
+
     def _predict_teacher(self, prompt: str) -> str:
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("模型未加载，请先调用 load() 方法")
@@ -140,11 +176,8 @@ class Predictor:
         return self._format_prediction(output_text)
 
     def predict(self, prompt: str) -> str:
-        if self.mode == "student":
-            if self.student is None:
-                raise RuntimeError("学生模型未加载，请先调用 load() 方法")
-            label = self.student.predict(prompt)
-            return f"预测涨跌幅：{label}"
+        if self.mode == "compressed":
+            return self._predict_compressed(prompt)
         if self.mode == "teacher":
             return self._predict_teacher(prompt)
         raise RuntimeError("模型未加载，请先调用 load() 方法")

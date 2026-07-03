@@ -1,4 +1,4 @@
-# Python caches
+﻿# Python caches
 __pycache__/
 *.py[cod]
 *$py.class
@@ -24,13 +24,21 @@ htmlcov/
 outputs/
 reports/
 
+# Teacher labels are reproducible from the official baseline and public data.
+weights/teacher_labels.jsonl
+
+# Invalid old standalone classifier artifact; do not submit under new rules.
+weights/student_model.npz
+weights/student_model_hashing_invalid.npz
+
 # OS/editor files
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 
-# Keep submission weights trackable when needed.
+# Keep compliant compressed submission weights trackable when needed.
 !weights/
 !weights/placeholder.txt
-!weights/student_model.npz
+!weights/compressed_llama_classifier/
+!weights/compressed_llama_classifier/**

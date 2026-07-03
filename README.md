@@ -1,17 +1,20 @@
 ## 本提交优化方法
 
-本提交新增一个轻量级 13 类学生分类器作为第二层优化方案：使用公开训练数据的 `prompt/label` 训练 Hashing 字符 n-gram + online softmax 线性分类器，并额外训练涨/跌/平三分类辅助头。正式推理时若存在 `weights/student_model.npz`，`Predictor` 会加载该轻量模型并真实执行分类推理，直接输出合法标签行 `预测涨跌幅：<标签>`；若权重不存在或损坏，则自动回退到官方 FinGPT 7B + LoRA 保底模型。
+本提交采用合规的“基线大模型结构压缩 + 蒸馏”路线。学生模型不是外部模型，也不是脱离基线直接训练的小分类器；它由赛题指定的官方 `Llama-2-7b-chat-hf` 基座模型挂载 `fingpt-forecaster_sz50_llama2-7B_lora` 后合并 LoRA，再按均匀层索引抽取部分 Transformer 层构造压缩 Llama backbone，并在最后 token hidden state 上训练 13 类涨跌幅分类头和涨/跌/平方向辅助头。
 
-第三方代码/算法说明：轻量分类器实现为本队自研代码，使用标准 hashing trick、softmax regression 与辅助方向分类思想；运行时仅依赖 Python 标准库和 `numpy`。训练脚本 `train_student.py` 读取 parquet 时需要开发环境中的 `pandas/pyarrow`，但正式评测不会调用训练脚本。
+训练监督来自两部分：公开 parquet 中的真实 `label`，以及官方 FinGPT 7B + LoRA teacher 真实生成并解析出的 `teacher_label`。因此该轻量模型属于基于指定基线大模型的结构压缩与蒸馏结果。正式推理时若存在 `weights/compressed_llama_classifier/`，`Predictor` 会加载该压缩 Llama 分类器并真实执行模型前向推理，输出合法标签行 `预测涨跌幅：<标签>`；若压缩模型目录不存在或损坏，则自动回退到官方 FinGPT 7B + LoRA 保底模型。
 
-训练轻量模型示例：
+第三方代码/算法说明：本方案使用 PyTorch、transformers、peft 等模板依赖；结构压缩、抽层、分类头训练和蒸馏流程为本提交代码实现。未使用外部预训练模型、外部金融预测模型或脱离基线大模型的独立数据分类器。
+
+训练与对比示例：
 
 ```bash
-python train_student.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/test-*.parquet --output weights/student_model.npz
+python build_teacher_labels.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/test-*.parquet --output weights/teacher_labels.jsonl
+python train_student.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/test-*.parquet --teacher-labels weights/teacher_labels.jsonl --kept-layers 8 --output-dir weights/compressed_llama_classifier
 uv run python local_eval.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/test-*.parquet --limit 100
 ```
 
-当前开发机如果只有 `test-*.parquet`，就直接用该公开 parquet 训练；脚本会先切分内部验证集打印 `val` 指标，再默认用全部公开样本重训最终提交权重。随后在同一公开 parquet 上跑 `local_eval.py` 会偏乐观，是否提交主要看训练脚本打印的 `val` 是否高于阈值。
+内部验证主要看 `train_student.py` 打印的 `val: macro_f1=... direction_acc=...`。建议先用 `--output-dir weights/compressed_llama_classifier_8l_probe` 训练 8 层验证版；若指标可接受，再加 `--val-ratio 0 --output-dir weights/compressed_llama_classifier` 用全部公开样本训练正式 8 层模型。若 8 层精度不足，可改用 `--kept-layers 12 --output-dir weights/compressed_llama_classifier_12l_probe` 训练对比，再用更优层数输出到 `weights/compressed_llama_classifier` 作为正式提交。
 # FinGPT 推理部署优化 — 参赛提交模板
 
 本目录就是你的**提交物**：把它放到你队伍服务器的 `/submission` 目录，
