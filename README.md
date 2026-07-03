@@ -1,3 +1,15 @@
+## 本提交优化方法
+
+本提交新增一个轻量级 13 类学生分类器作为第二层优化方案：使用公开训练数据的 `prompt/label` 训练 Hashing 字符 n-gram + online softmax 线性分类器，并额外训练涨/跌/平三分类辅助头。正式推理时若存在 `weights/student_model.npz`，`Predictor` 会加载该轻量模型并真实执行分类推理，直接输出合法标签行 `预测涨跌幅：<标签>`；若权重不存在或损坏，则自动回退到官方 FinGPT 7B + LoRA 保底模型。
+
+第三方代码/算法说明：轻量分类器实现为本队自研代码，使用标准 hashing trick、softmax regression 与辅助方向分类思想；运行时仅依赖 Python 标准库和 `numpy`。训练脚本 `train_student.py` 读取 parquet 时需要开发环境中的 `pandas/pyarrow`，但正式评测不会调用训练脚本。
+
+训练轻量模型示例：
+
+```bash
+python train_student.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/train-*.parquet --output weights/student_model.npz
+uv run python local_eval.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/test-*.parquet --limit 100
+```
 # FinGPT 推理部署优化 — 参赛提交模板
 
 本目录就是你的**提交物**：把它放到你队伍服务器的 `/submission` 目录，
@@ -65,3 +77,4 @@ uv run python local_eval.py --parquet /opt/fingpt-forecaster/datasets/fingpt-for
 - 权重用相对路径加载（拉取后目录位置与你服务器上不同）
 - 公共基座模型在判题机的 `/opt/fingpt-forecaster/models/` 同样可用
 - 使用第三方代码/开源算法必须在本 README 头部明确标注
+
