@@ -7,9 +7,11 @@
 训练轻量模型示例：
 
 ```bash
-python train_student.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/train-*.parquet --output weights/student_model.npz
+python train_student.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/test-*.parquet --output weights/student_model.npz
 uv run python local_eval.py --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/test-*.parquet --limit 100
 ```
+
+当前开发机如果只有 `test-*.parquet`，就直接用该公开 parquet 训练；脚本会先切分内部验证集打印 `val` 指标，再默认用全部公开样本重训最终提交权重。随后在同一公开 parquet 上跑 `local_eval.py` 会偏乐观，是否提交主要看训练脚本打印的 `val` 是否高于阈值。
 # FinGPT 推理部署优化 — 参赛提交模板
 
 本目录就是你的**提交物**：把它放到你队伍服务器的 `/submission` 目录，

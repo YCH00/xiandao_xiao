@@ -3,7 +3,7 @@
 
 Example:
   python train_student.py \
-    --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/train-*.parquet \
+    --parquet /opt/fingpt-forecaster/datasets/fingpt-forecaster-sz50-20230201-20240101/data/*.parquet \
     --output weights/student_model.npz
 
 The produced artifact is loaded by predictor.py when present.  The trainer uses
@@ -32,10 +32,33 @@ from student_model import (
 
 def _expand_paths(patterns: list[str]) -> list[str]:
     paths: list[str] = []
+    missing: list[str] = []
     for pattern in patterns:
         matches = sorted(glob.glob(pattern))
-        paths.extend(matches if matches else [pattern])
-    return paths
+        if matches:
+            paths.extend(matches)
+        else:
+            missing.append(pattern)
+
+    if paths:
+        return list(dict.fromkeys(paths))
+
+    hints: list[str] = []
+    for pattern in patterns:
+        parent = Path(pattern).expanduser().parent
+        if any(ch in str(parent) for ch in "*?"):
+            continue
+        if parent.exists():
+            hints.extend(str(path) for path in sorted(parent.glob("*.parquet"))[:20])
+
+    message = ["No parquet files matched --parquet.", "Patterns:"]
+    message.extend(f"  {pattern}" for pattern in missing)
+    if hints:
+        message.append("Available parquet files in the same directory:")
+        message.extend(f"  {hint}" for hint in hints)
+    else:
+        message.append("No .parquet files were found in the specified parent directories.")
+    raise SystemExit("\n".join(message))
 
 
 def _load_rows(patterns: list[str], limit: int) -> tuple[list[str], list[str]]:
@@ -219,6 +242,7 @@ def main() -> None:
     parser.add_argument("--output", default="weights/student_model.npz")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--val-ratio", type=float, default=0.2)
+    parser.add_argument("--no-final-train-all", action="store_true", help="Save the split-trained model instead of retraining on all rows after validation")
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--dim", type=int, default=1 << 18)
     parser.add_argument("--ngram-min", type=int, default=2)
@@ -308,7 +332,42 @@ def main() -> None:
     if val_prompts:
         _report("val", val_labels, _predict_labels(classifier, val_prompts))
 
-    save_student_artifact(Path(args.output), classifier=classifier)
+    final_classifier = classifier
+    if val_prompts and not args.no_final_train_all:
+        print("retraining final classifier on all available public rows ...", flush=True)
+        final_weights, final_bias = _train_softmax(
+            prompts=prompts,
+            y=y_all,
+            extractor=extractor,
+            n_classes=len(ALL_LABELS),
+            epochs=args.epochs,
+            lr=args.lr,
+            l2=args.l2,
+            seed=args.seed + 10,
+        )
+        print("retraining final direction auxiliary classifier on all rows ...", flush=True)
+        final_direction_weights, final_direction_bias = _train_softmax(
+            prompts=prompts,
+            y=y_dir_all,
+            extractor=extractor,
+            n_classes=len(DIRECTION_LABELS),
+            epochs=max(3, args.epochs // 2),
+            lr=args.lr,
+            l2=args.l2,
+            seed=args.seed + 11,
+        )
+        final_classifier = StudentTextClassifier(
+            extractor=extractor,
+            weights=final_weights,
+            bias=final_bias,
+            labels=ALL_LABELS,
+            direction_weights=final_direction_weights,
+            direction_bias=final_direction_bias,
+            direction_weight=direction_weight,
+        )
+        _report("all_public_fit", labels, _predict_labels(final_classifier, prompts))
+
+    save_student_artifact(Path(args.output), classifier=final_classifier)
     print(f"saved {args.output}", flush=True)
 
 
