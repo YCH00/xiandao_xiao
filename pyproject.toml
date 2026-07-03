@@ -1,0 +1,23 @@
+[project]
+name = "fingpt-submission"
+version = "0.1.0"
+description = "FinGPT 推理部署优化赛题提交环境（uv 管理）"
+requires-python = "==3.10.*"
+dependencies = [
+    # 海光 das 版 torch（本地 wheel，见 tool.uv.sources；勿改装官方 CUDA wheel）
+    "torch==2.5.1+das.opt1.dtk25041",
+    "transformers==4.45.2",
+    "peft==0.13.2",
+    "accelerate==0.34.2",
+    "numpy<2",
+    "sentencepiece>=0.1.99",
+    "protobuf>=3.20",
+    # ↓ 在此追加你需要的依赖（量化/剪枝/蒸馏工具等），判题前会自动 uv sync
+]
+
+[tool.uv.sources]
+torch = { path = "/opt/fingpt-forecaster/wheelhouse/torch-2.5.1+das.opt1.dtk25041-cp310-cp310-manylinux_2_28_x86_64.whl" }
+
+[tool.uv]
+# 校内网走清华镜像；判题容器内同样生效
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
