@@ -1,0 +1,36 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local tooling and test caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Local evaluation outputs
+outputs/
+reports/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Keep submission weights trackable when needed.
+!weights/
+!weights/placeholder.txt
+!weights/student_model.npz
