@@ -147,7 +147,7 @@ class Predictor:
         if env_max_length:
             max_length = min(model_max_length, int(env_max_length))
         else:
-            max_length = min(model_max_length, 2048)
+            max_length = min(model_max_length, 1536)
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",

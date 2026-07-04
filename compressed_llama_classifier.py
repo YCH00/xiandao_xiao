@@ -165,14 +165,17 @@ class CompressedLlamaClassifier(nn.Module):
             labels=tuple(metadata["labels"]),
             max_length=int(metadata.get("max_length", 4096)),
         )
+        if dtype is not None:
+            model.to(dtype=dtype)
         weights_path = model_dir / "pytorch_model.bin"
         try:
             state = torch.load(weights_path, map_location=map_location, weights_only=True)
         except TypeError:
             state = torch.load(weights_path, map_location=map_location)
-        model.load_state_dict(state)
-        if dtype is not None:
-            model.to(dtype=dtype)
+        try:
+            model.load_state_dict(state, assign=True)
+        except TypeError:
+            model.load_state_dict(state)
         return model
 
 

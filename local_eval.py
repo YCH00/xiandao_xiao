@@ -57,9 +57,12 @@ def main() -> None:
 
     torch.cuda.reset_peak_memory_stats()
     records = []
+    print(f"starting evaluation on {len(df)} rows ...", flush=True)
     for i, row in enumerate(df.itertuples(index=False)):
         t0 = time.perf_counter()
         try:
+            if args.debug_errors:
+                print(f"predicting row {i + 1}/{len(df)} ...", flush=True)
             text = p.predict(row.prompt)
             status = "ok"
         except Exception as e:  # noqa: BLE001
