@@ -142,14 +142,20 @@ class Predictor:
         import torch
 
         device = next(self.model.parameters()).device
-        max_length = int(getattr(self.model, "max_length", 4096))
+        model_max_length = int(getattr(self.model, "max_length", 4096))
+        env_max_length = os.environ.get("COMPRESSED_LLAMA_MAX_LENGTH")
+        if env_max_length:
+            max_length = min(model_max_length, int(env_max_length))
+        else:
+            max_length = min(model_max_length, 2048)
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
             truncation=True,
             max_length=max_length,
         ).to(device)
-        with torch.inference_mode():
+        use_amp = device.type == "cuda"
+        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_amp):
             label = self.model.predict_label(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs.get("attention_mask"),

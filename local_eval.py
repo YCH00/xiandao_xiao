@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -34,6 +35,7 @@ def main() -> None:
     ap.add_argument("--parquet", required=True, help="公开测试集 test parquet")
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--gpu", type=int, default=0)
+    ap.add_argument("--debug-errors", action="store_true", help="print the first prediction traceback")
     args = ap.parse_args()
 
     os.environ.setdefault("HIP_VISIBLE_DEVICES", str(args.gpu))
@@ -62,6 +64,10 @@ def main() -> None:
             status = "ok"
         except Exception as e:  # noqa: BLE001
             text, status = "", f"predict_error:{type(e).__name__}"
+            if args.debug_errors:
+                print(f"prediction failed on row {i + 1}: {type(e).__name__}: {e}", flush=True)
+                traceback.print_exc()
+                args.debug_errors = False
         latency = time.perf_counter() - t0
         records.append({"text": text, "status": status, "latency_s": latency, "label": row.label})
         print(f"[{i + 1}/{len(df)}] {latency:.1f}s {status}", flush=True)
