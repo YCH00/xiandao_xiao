@@ -1,4 +1,4 @@
-﻿"""Baseline-derived compressed Llama classifier for FinGPT labels.
+"""Baseline-derived compressed Llama classifier for FinGPT labels.
 
 This module is the compliant lightweight model path: the student is initialized
 from the official Llama2 base model with the FinGPT LoRA adapter merged, then a
@@ -162,7 +162,11 @@ class CompressedLlamaClassifier(nn.Module):
             labels=tuple(metadata["labels"]),
             max_length=int(metadata.get("max_length", 4096)),
         )
-        state = torch.load(model_dir / "pytorch_model.bin", map_location=map_location)
+        weights_path = model_dir / "pytorch_model.bin"
+        try:
+            state = torch.load(weights_path, map_location=map_location, weights_only=True)
+        except TypeError:
+            state = torch.load(weights_path, map_location=map_location)
         model.load_state_dict(state)
         if dtype is not None:
             model.to(dtype=dtype)

@@ -1,4 +1,4 @@
-﻿"""参赛提交入口：Predictor 类。
+"""参赛提交入口：Predictor 类。
 
 判题系统按如下契约调用，请勿改变类名与方法签名：
 
@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -19,7 +20,12 @@ from pathlib import Path
 class Predictor:
     def __init__(self):
         root = Path(__file__).resolve().parent
-        self.compressed_dir = root / "weights" / "compressed_llama_classifier"
+        compressed_dir = os.environ.get("COMPRESSED_LLAMA_DIR")
+        if compressed_dir:
+            compressed_path = Path(compressed_dir)
+            self.compressed_dir = compressed_path if compressed_path.is_absolute() else root / compressed_path
+        else:
+            self.compressed_dir = root / "weights" / "compressed_llama_classifier"
         self.model = None
         self.tokenizer = None
         self.mode = "unloaded"
