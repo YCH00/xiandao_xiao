@@ -15,6 +15,7 @@ uv run python local_eval.py --parquet /opt/fingpt-forecaster/datasets/fingpt-for
 ```
 
 内部验证主要看 `train_student.py` 打印的 `val: macro_f1=... direction_acc=...`。建议先用 `--output-dir weights/compressed_llama_classifier_8l_probe` 训练 8 层验证版；若指标可接受，再加 `--val-ratio 0 --output-dir weights/compressed_llama_classifier` 用全部公开样本训练正式 8 层模型。若 8 层精度不足，可改用 `--kept-layers 12 --output-dir weights/compressed_llama_classifier_12l_probe` 训练对比，再用更优层数输出到 `weights/compressed_llama_classifier` 作为正式提交。
+当前训练脚本会按验证集自动保存 best epoch，而不是保存最后一轮。8 层初测若出现后期回落，可优先尝试更稳的头部学习率：`--lr-head 5e-4 --gradient-accumulation 16`；若验证 F1 仍不稳，再训练 12 层版本对比。正式输出目录必须是 `weights/compressed_llama_classifier`。
 # FinGPT 推理部署优化 — 参赛提交模板
 
 本目录就是你的**提交物**：把它放到你队伍服务器的 `/submission` 目录，

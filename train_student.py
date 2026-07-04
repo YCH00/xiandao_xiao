@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Train a baseline-derived compressed Llama classifier.
 
 This is the compliant second-layer route:
@@ -221,6 +221,22 @@ def _evaluate(model: CompressedLlamaClassifier, loader: DataLoader, device: torc
     return f1, da
 
 
+def _checkpoint_metric(f1: float, da: float) -> tuple[int, float, float, float]:
+    """Validation ordering aligned with the public score thresholds.
+
+    First prefer models that clear both zeroing thresholds, then maximize the
+    clipped W components, and finally use raw F1/DA as tie-breakers.  This keeps
+    a good mid-training checkpoint from being overwritten by a worse final epoch.
+    """
+    clears_thresholds = int(f1 >= 0.03 and da >= 0.35)
+    clipped_w = min(f1 / 0.0599, 1.0) + min(da / 0.5, 1.0)
+    return clears_thresholds, clipped_w, f1, da
+
+
+def _copy_state_to_cpu(model: CompressedLlamaClassifier) -> dict[str, torch.Tensor]:
+    return {name: tensor.detach().cpu().clone() for name, tensor in model.state_dict().items()}
+
+
 def _train_once(args, prompts: list[str], labels: list[str], teacher_labels: list[str | None], layer_indices: list[int], output_dir: str | Path) -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
     tokenizer.truncation_side = "left"
@@ -267,6 +283,9 @@ def _train_once(args, prompts: list[str], labels: list[str], teacher_labels: lis
 
     use_amp = device.type == "cuda"
     step = 0
+    best_state: dict[str, torch.Tensor] | None = None
+    best_epoch = 0
+    best_metric: tuple[int, float, float, float] | None = None
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(1, args.epochs + 1):
         losses: list[float] = []
@@ -283,9 +302,26 @@ def _train_once(args, prompts: list[str], labels: list[str], teacher_labels: lis
                 optimizer.zero_grad(set_to_none=True)
                 step += 1
         print(f"epoch {epoch}/{args.epochs} loss={np.mean(losses):.4f}", flush=True)
-        _evaluate(student, train_loader, device, "train")
+        train_f1, train_da = _evaluate(student, train_loader, device, "train")
         if val_loader is not None:
-            _evaluate(student, val_loader, device, "val")
+            val_f1, val_da = _evaluate(student, val_loader, device, "val")
+            metric = _checkpoint_metric(val_f1, val_da)
+        else:
+            metric = _checkpoint_metric(train_f1, train_da)
+        if best_metric is None or metric > best_metric:
+            best_metric = metric
+            best_epoch = epoch
+            best_state = _copy_state_to_cpu(student)
+            print(
+                f"new best checkpoint: epoch={best_epoch} "
+                f"clears_thresholds={metric[0]} clipped_w={metric[1]:.4f} "
+                f"f1={metric[2]:.4f} da={metric[3]:.4f}",
+                flush=True,
+            )
+
+    if best_state is not None:
+        print(f"loading best checkpoint from epoch {best_epoch} before saving", flush=True)
+        student.load_state_dict(best_state)
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     student.eval()

@@ -42,3 +42,7 @@ Thumbs.db
 !weights/placeholder.txt
 !weights/compressed_llama_classifier/
 !weights/compressed_llama_classifier/**
+
+__pycache__/
+*.pyc
+*.pyo
