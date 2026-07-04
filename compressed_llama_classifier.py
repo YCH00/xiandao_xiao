@@ -85,6 +85,9 @@ class CompressedLlamaClassifier(nn.Module):
         max_length: int = 4096,
     ) -> None:
         super().__init__()
+        # The judging ROCm image may not provide flash_attn_2_cuda*.so.
+        # Eager attention is slower but portable and matches the official fallback path.
+        config._attn_implementation = "eager"
         self.labels = tuple(labels)
         self.max_length = int(max_length)
         self.model = LlamaModel(config)
